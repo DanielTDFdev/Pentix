@@ -71,6 +71,13 @@ button:focus-visible,input:focus-visible+span{outline:2px solid var(--accent);ou
 .result div{background:var(--ink);border:1px solid var(--line);border-radius:10px;padding:10px}
 .result span{display:block;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted)}
 .result b{font-family:var(--display);font-size:24px;font-variant-numeric:tabular-nums}
+.overlay.title{background:radial-gradient(70% 60% at 50% 45%,rgba(10,15,29,.25),rgba(10,15,29,.88));backdrop-filter:none;overflow:auto}
+.titlewrap{width:min(460px,100%);display:grid;gap:14px;justify-items:center}
+#logo{display:block;width:100%;height:auto;filter:drop-shadow(0 10px 24px rgba(0,0,0,.55))}
+.tag{margin:0;font-family:var(--display);font-size:13px;letter-spacing:.32em;text-transform:uppercase;color:var(--accent)}
+.titlewrap .card{width:min(380px,100%);background:rgba(18,26,46,.82)}
+.hint{margin:0;font-size:12px;color:var(--muted)}
+@media (pointer:coarse){ .hint{display:none} }
 .newrec{color:var(--accent);font-family:var(--display);font-weight:700;letter-spacing:.06em}
 
 .hud{grid-area:hud;display:flex;flex-direction:column;gap:16px;min-width:0;padding-block:4px}
@@ -135,10 +142,11 @@ button:focus-visible,input:focus-visible+span{outline:2px solid var(--accent);ou
     </div>
     <div class="toast" id="toast"></div>
 
-    <section class="overlay" id="menu">
+    <section class="overlay title" id="menu">
+      <div class="titlewrap">
+      <canvas id="logo" role="img" aria-label="Pentix"></canvas>
+      <p class="tag">Tetris 3D · pentominós</p>
       <div class="card">
-        <h2>Pent<em>ix</em></h2>
-        <p>Piezas cayendo en un pozo 3D. Completá capas enteras para pasar de nivel; cada nivel cae más rápido.</p>
         <fieldset class="sizes two" id="sets">
           <legend>Piezas</legend>
           <label><input type="radio" name="set" id="setPenta" value="penta" checked><span><b>Penta</b><small>12 piezas de 5</small></span></label>
@@ -151,6 +159,8 @@ button:focus-visible,input:focus-visible+span{outline:2px solid var(--accent);ou
           <label><input type="radio" name="size" id="s7" value="7"><span><b>7×7</b><small id="best7">Récord 0</small></span></label>
         </fieldset>
         <button class="btn primary" id="startBtn">Jugar</button>
+      </div>
+      <p class="hint">Enter para jugar · arrastrá para girar el pozo</p>
       </div>
     </section>
 
@@ -684,7 +694,62 @@ function demoScene(){
   grid = Array.from({length:H}, (_, y) => Array.from({length:N*N}, () => y < 3 && Math.random() < (0.85 - y*0.2) ? 1 : 0));
   buildPit(); rebuildSettled(); updateDepthCells(); updateDepth();
   nextKey = fromBag(); drawNext(); score = 0; level = 1; layersDone = 0; best = store.get(bestKey(N), 0); updateHud();
-  refreshMenuBests();
+  refreshMenuBests(); logoIntro();
+}
+
+/* ---------- Logo de portada: letras de cubos que caen y se apilan ---------- */
+const LOGO = [
+  ['#ff1f9e',['111','101','111','100','100']], ['#ffd600',['111','100','110','100','111']],
+  ['#8a2bff',['1001','1101','1011','1001','1001']], ['#00e05a',['111','010','010','010','010']],
+  ['#00c8ff',['111','010','010','010','111']], ['#b6ff00',['101','101','010','101','101']],
+];
+const logoCv = $('#logo'), lctx = logoCv.getContext('2d');
+const LS = 22, LD = 10, LPAD = 3;
+const logoCubes = [];
+{
+  let col = 0;
+  const white = new THREE.Color(0xffffff);
+  LOGO.forEach(([hex, rows], li) => {
+    const c = new THREE.Color(hex);
+    const top = c.clone().lerp(white, .38).getStyle(), side = c.clone().multiplyScalar(.5).getStyle(), front = c.getStyle();
+    rows.forEach((row, r) => [...row].forEach((ch, k) => {
+      if (ch === '1') logoCubes.push({x:LPAD + (col + k)*LS, ty:LPAD + LD + r*LS, r, li, front, top, side});
+    }));
+    col += rows[0].length + 1;
+  });
+  logoCubes.sort((a, b) => b.r - a.r || a.x - b.x);   // de abajo hacia arriba, izquierda a derecha
+  var LW = LPAD*2 + (col - 1)*LS + LD, LH = LPAD*2 + 5*LS + LD;
+}
+function drawCube(q, y){
+  const x = q.x, s = LS, d = LD;
+  lctx.fillStyle = q.side; lctx.beginPath();
+  lctx.moveTo(x+s, y); lctx.lineTo(x+s+d, y-d); lctx.lineTo(x+s+d, y+s-d); lctx.lineTo(x+s, y+s); lctx.fill();
+  lctx.fillStyle = q.top; lctx.beginPath();
+  lctx.moveTo(x, y); lctx.lineTo(x+d, y-d); lctx.lineTo(x+s+d, y-d); lctx.lineTo(x+s, y); lctx.fill();
+  lctx.fillStyle = q.front; lctx.fillRect(x, y, s, s);
+  lctx.strokeStyle = 'rgba(0,0,0,.35)'; lctx.lineWidth = 1; lctx.strokeRect(x + .5, y + .5, s - 1, s - 1);
+  lctx.fillStyle = 'rgba(255,255,255,.22)'; lctx.fillRect(x + 2, y + 2, s - 4, 3);
+}
+let logoRaf = 0;
+function logoIntro(){
+  const dpr = Math.min(devicePixelRatio || 1, 2);
+  logoCv.width = LW*dpr; logoCv.height = LH*dpr;
+  lctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  cancelAnimationFrame(logoRaf);
+  const t0 = performance.now(), DUR = 360;
+  const step = now => {
+    const t = now - t0; let busy = false;
+    lctx.clearRect(0, 0, LW, LH);
+    for (const q of logoCubes) {
+      const delay = q.li*120 + (4 - q.r)*50, u = reduceMotion ? 1 : (t - delay)/DUR;
+      if (u <= 0) { busy = true; continue; }
+      if (u < 1) busy = true;
+      const y0 = q.ty - LH - 30;
+      drawCube(q, u >= 1 ? q.ty : y0 + (q.ty - y0)*u*u);
+    }
+    if (busy) logoRaf = requestAnimationFrame(step);
+  };
+  logoRaf = requestAnimationFrame(step);
 }
 
 /* ---------- Bucle ---------- */
@@ -720,5 +785,6 @@ view = 'iso'; refreshMenuBests(); applyMute(); demoScene(); resize(); updateCame
 requestAnimationFrame(frame);
 })();
 </script>
+
 
 </html>
