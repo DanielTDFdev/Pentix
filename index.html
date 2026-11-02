@@ -1,0 +1,723 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Pentix</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;700&family=IBM+Plex+Sans:wght@400;600&display=swap">
+<style>
+/* Layout: el pozo ocupa la escena; HUD en columna a la derecha (desktop) o franja arriba (celular); pad táctil abajo */
+:root{
+  --ink:#0a0f1d;
+  --ink-2:#121a2e;
+  --line:#28345a;
+  --fg:#e8edf8;
+  --muted:#8e99b8;
+  --accent:#ffb547;
+  --display:"Chakra Petch","Segoe UI",system-ui,sans-serif;
+  --body:"IBM Plex Sans",system-ui,-apple-system,sans-serif;
+  color-scheme:dark;
+}
+html{height:100%;box-sizing:border-box}
+*,*::before,*::after{box-sizing:inherit}
+body{height:100%;background:var(--ink);color:var(--fg);font-family:var(--body);overflow:hidden;-webkit-user-select:none;user-select:none}
+button{font:inherit;color:inherit}
+button:focus-visible,input:focus-visible+span{outline:2px solid var(--accent);outline-offset:2px}
+
+.app{height:100%;display:grid;grid-template-columns:minmax(0,1fr) 248px;grid-template-rows:minmax(0,1fr) auto;
+  grid-template-areas:"stage hud" "pad hud";gap:12px 16px;padding-block:12px;
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+
+.stage{grid-area:stage;position:relative;min-width:0;min-height:0;border-radius:12px;overflow:hidden;
+  background:radial-gradient(120% 90% at 50% 35%,var(--ink-2),var(--ink) 70%);border:1px solid var(--line)}
+#gl{display:block;width:100%;height:100%;touch-action:none;cursor:grab}
+#gl:active{cursor:grabbing}
+
+.depth{position:absolute;left:10px;top:50%;transform:translateY(-50%);display:flex;flex-direction:column;align-items:center;gap:6px;pointer-events:none}
+.depth .cells{display:flex;flex-direction:column-reverse;gap:3px}
+.depth i{display:block;width:10px;height:12px;border-radius:2px;background:var(--line);transition:background .2s}
+.depth span{font-family:var(--display);font-size:10px;letter-spacing:.12em;color:var(--muted);text-transform:uppercase;writing-mode:vertical-rl;transform:rotate(180deg)}
+
+.toast{position:absolute;left:50%;top:18%;transform:translate(-50%,-8px);font-family:var(--display);font-weight:700;
+  font-size:clamp(22px,5vw,40px);letter-spacing:.06em;color:var(--accent);text-shadow:0 2px 18px rgba(0,0,0,.6);
+  opacity:0;transition:opacity .25s,transform .25s;pointer-events:none;white-space:nowrap}
+.toast.show{opacity:1;transform:translate(-50%,0)}
+
+.overlay{position:absolute;inset:0;display:grid;place-items:center;padding:16px;background:rgba(10,15,29,.62);backdrop-filter:blur(3px)}
+.card{width:min(380px,100%);background:var(--ink-2);border:1px solid var(--line);border-radius:14px;padding:22px;display:grid;gap:14px;box-shadow:0 20px 50px rgba(0,0,0,.45)}
+.card h2{margin:0;font-family:var(--display);font-size:30px;line-height:1;letter-spacing:.02em}
+.card h2 em{font-style:normal;color:var(--accent)}
+.card p{margin:0;color:var(--muted);line-height:1.5;font-size:14px}
+.sizes{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;border:0;margin:0;padding:0}
+.sizes legend{font-family:var(--display);font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted);margin-bottom:8px}
+.sizes label{position:relative}
+.sizes input{position:absolute;opacity:0}
+.sizes span{display:grid;gap:2px;place-items:center;padding:10px 4px;border:1px solid var(--line);border-radius:10px;cursor:pointer;transition:border-color .15s,background .15s}
+.sizes b{font-family:var(--display);font-size:20px}
+.sizes small{font-size:11px;color:var(--muted);font-variant-numeric:tabular-nums}
+.sizes input:checked+span{border-color:var(--accent);background:rgba(255,181,71,.08)}
+.sizes.two{grid-template-columns:repeat(2,1fr)}
+.btn{border:1px solid var(--line);background:var(--ink);border-radius:10px;padding:10px 14px;cursor:pointer;font-weight:600;transition:border-color .15s,background .15s}
+.btn:hover{border-color:var(--muted)}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:#1d1404;font-family:var(--display);font-size:18px;letter-spacing:.04em}
+.btn.primary:hover{filter:brightness(1.06)}
+.row{display:flex;gap:8px;flex-wrap:wrap}
+.row .btn{flex:1}
+.result{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.result div{background:var(--ink);border:1px solid var(--line);border-radius:10px;padding:10px}
+.result span{display:block;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted)}
+.result b{font-family:var(--display);font-size:24px;font-variant-numeric:tabular-nums}
+.newrec{color:var(--accent);font-family:var(--display);font-weight:700;letter-spacing:.06em}
+
+.hud{grid-area:hud;display:flex;flex-direction:column;gap:16px;min-width:0;padding-block:4px}
+.brand{margin:0;font-family:var(--display);font-weight:700;font-size:30px;letter-spacing:.02em;line-height:1}
+.brand em{font-style:normal;color:var(--accent)}
+.stats{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.stat{background:var(--ink-2);border:1px solid var(--line);border-radius:10px;padding:8px 10px;min-width:0}
+.lbl{display:block;font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted)}
+.stat b{font-family:var(--display);font-size:22px;font-variant-numeric:tabular-nums}
+.stat.wide{grid-column:span 2}
+.bar{height:4px;border-radius:2px;background:var(--line);margin-top:6px;overflow:hidden}
+.bar i{display:block;height:100%;width:0;background:var(--accent);transition:width .3s}
+.next{background:var(--ink-2);border:1px solid var(--line);border-radius:10px;padding:8px 10px;display:grid;gap:4px;justify-items:start}
+#nextCv{width:110px;height:110px;justify-self:center}
+.tools{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}
+.tools .btn{padding:8px 4px;font-size:13px}
+.keys{margin:0;display:grid;grid-template-columns:auto 1fr;gap:5px 10px;font-size:12.5px;color:var(--muted)}
+.keys dt{font-family:var(--display);color:var(--fg);white-space:nowrap}
+.keys dd{margin:0}
+
+.pad{grid-area:pad;display:none;justify-content:space-between;align-items:center;gap:12px;touch-action:none}
+.dpad{display:grid;grid-template-columns:repeat(3,52px);grid-template-rows:repeat(3,44px);gap:4px;
+  grid-template-areas:". u ." "l . r" ". d ."}
+.pbtn{border:1px solid var(--line);background:var(--ink-2);border-radius:10px;font-size:16px;cursor:pointer;touch-action:none;display:grid;place-items:center}
+.pbtn:active{background:var(--line)}
+.dpad [data-act=up]{grid-area:u}.dpad [data-act=left]{grid-area:l}.dpad [data-act=right]{grid-area:r}.dpad [data-act=down]{grid-area:d}
+.rots{display:grid;grid-template-columns:repeat(2,76px);grid-auto-rows:44px;gap:6px}
+.rots .pbtn{font-family:var(--display);font-size:13px;letter-spacing:.04em}
+.rots .drop{background:var(--accent);border-color:var(--accent);color:#1d1404;font-weight:700}
+
+.stagetools{position:absolute;right:8px;top:8px;display:none;gap:6px}
+.stagetools .btn{padding:6px 9px;font-size:12px;background:rgba(10,15,29,.7)}
+@media (pointer:coarse){ .pad{display:flex} .keys{display:none} }
+@media (max-width:760px){
+  .app{grid-template-columns:minmax(0,1fr);grid-template-rows:auto minmax(0,1fr) auto;grid-template-areas:"hud" "stage" "pad";gap:8px;padding-block:8px}
+  .pad{display:flex}
+  .hud{flex-direction:row;align-items:stretch;gap:8px;padding:0}
+  .brand,.keys{display:none}
+  .stats{grid-template-columns:repeat(4,minmax(0,1fr));flex:1;gap:6px}
+  .stat{padding:6px 7px}
+  .stat.wide{grid-column:auto}
+  .stat b{font-size:17px}
+  .lbl{font-size:9px;letter-spacing:.08em}
+  .next{padding:4px 6px}
+  .next .lbl{display:none}
+  #nextCv{width:50px;height:50px}
+  .tools{display:none}
+  .stagetools{display:flex}
+  .depth i{width:8px;height:9px}
+}
+@media (prefers-reduced-motion:reduce){ .toast,.bar i,.depth i{transition:none} }
+</style>
+
+<div class="app">
+  <main class="stage" id="stage">
+    <canvas id="gl" aria-label="Pozo de juego"></canvas>
+    <div class="depth" aria-hidden="true"><div class="cells" id="depth"></div><span>Altura</span></div>
+    <div class="stagetools">
+      <button class="btn" data-ui="view">Vista</button>
+      <button class="btn" data-ui="pause">Pausa</button>
+      <button class="btn" data-ui="mute">Sonido</button>
+    </div>
+    <div class="toast" id="toast"></div>
+
+    <section class="overlay" id="menu">
+      <div class="card">
+        <h2>Pent<em>ix</em></h2>
+        <p>Piezas cayendo en un pozo 3D. Completá capas enteras para pasar de nivel; cada nivel cae más rápido.</p>
+        <fieldset class="sizes two" id="sets">
+          <legend>Piezas</legend>
+          <label><input type="radio" name="set" id="setPenta" value="penta" checked><span><b>Penta</b><small>12 piezas de 5</small></span></label>
+          <label><input type="radio" name="set" id="setTetra" value="tetra"><span><b>Tetra</b><small>5 piezas de 4</small></span></label>
+        </fieldset>
+        <fieldset class="sizes" id="sizes">
+          <legend>Tamaño del pozo</legend>
+          <label><input type="radio" name="size" id="s5" value="5" checked><span><b>5×5</b><small id="best5">Récord 0</small></span></label>
+          <label><input type="radio" name="size" id="s6" value="6"><span><b>6×6</b><small id="best6">Récord 0</small></span></label>
+          <label><input type="radio" name="size" id="s7" value="7"><span><b>7×7</b><small id="best7">Récord 0</small></span></label>
+        </fieldset>
+        <button class="btn primary" id="startBtn">Jugar</button>
+      </div>
+    </section>
+
+    <section class="overlay" id="pauseOv" hidden>
+      <div class="card">
+        <h2>Pausa</h2>
+        <div class="row"><button class="btn primary" id="resumeBtn">Seguir</button><button class="btn" id="quitBtn">Salir al menú</button></div>
+      </div>
+    </section>
+
+    <section class="overlay" id="overOv" hidden>
+      <div class="card">
+        <h2>Pozo <em>lleno</em></h2>
+        <div class="newrec" id="newRec" hidden>¡Nuevo récord!</div>
+        <div class="result">
+          <div><span>Puntos</span><b id="oScore">0</b></div>
+          <div><span>Nivel</span><b id="oLevel">1</b></div>
+        </div>
+        <div class="row"><button class="btn primary" id="againBtn">Jugar de nuevo</button><button class="btn" id="menuBtn">Cambiar pozo</button></div>
+      </div>
+    </section>
+  </main>
+
+  <aside class="hud">
+    <h1 class="brand">Pent<em>ix</em></h1>
+    <div class="stats">
+      <div class="stat wide"><span class="lbl">Puntos</span><b id="score">0</b></div>
+      <div class="stat"><span class="lbl">Nivel</span><b id="level">1</b></div>
+      <div class="stat"><span class="lbl">Capas</span><b id="layers">0/5</b><div class="bar"><i id="layerBar"></i></div></div>
+      <div class="stat wide"><span class="lbl">Récord</span><b id="best">0</b></div>
+    </div>
+    <div class="next"><span class="lbl">Siguiente</span><canvas id="nextCv" width="220" height="220"></canvas></div>
+    <div class="tools">
+      <button class="btn" data-ui="view">Vista</button>
+      <button class="btn" data-ui="pause">Pausa</button>
+      <button class="btn" data-ui="mute">Sonido</button>
+    </div>
+    <dl class="keys">
+      <dt>Flechas</dt><dd>mover</dd>
+      <dt>Q / A</dt><dd>volcar</dd>
+      <dt>W / S</dt><dd>girar</dd>
+      <dt>E / D</dt><dd>rodar</dd>
+      <dt>Espacio</dt><dd>soltar</dd>
+      <dt>Shift</dt><dd>acelerar caída</dd>
+      <dt>V</dt><dd>cambiar vista</dd>
+      <dt>Z / X</dt><dd>rotar cámara 90°</dd>
+      <dt>Arrastrar</dt><dd>orbitar cámara</dd>
+      <dt>P · M</dt><dd>pausa · sonido</dd>
+    </dl>
+  </aside>
+
+  <div class="pad" id="pad">
+    <div class="dpad">
+      <button class="pbtn" data-act="up" aria-label="Mover hacia el fondo">▲</button>
+      <button class="pbtn" data-act="left" aria-label="Mover a la izquierda">◀</button>
+      <button class="pbtn" data-act="right" aria-label="Mover a la derecha">▶</button>
+      <button class="pbtn" data-act="down" aria-label="Mover hacia adelante">▼</button>
+    </div>
+    <div class="rots">
+      <button class="pbtn" data-act="pitch">Volcar</button>
+      <button class="pbtn" data-act="spin">Girar</button>
+      <button class="pbtn" data-act="roll">Rodar</button>
+      <button class="pbtn drop" data-act="drop">Soltar</button>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+(() => {
+const $ = s => document.querySelector(s);
+const H = 12;                 // profundidad del pozo
+const LPL = 5;                // capas por nivel
+const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+/* ---------- Piezas (x,z): pentominós y tetrominós ---------- */
+const PENTA = {
+  F:[[1,0],[2,0],[0,1],[1,1],[1,2]], I:[[0,0],[1,0],[2,0],[3,0],[4,0]],
+  L:[[0,0],[0,1],[0,2],[0,3],[1,3]], N:[[0,0],[1,0],[1,1],[2,1],[3,1]],
+  P:[[0,0],[1,0],[0,1],[1,1],[0,2]], T:[[0,0],[1,0],[2,0],[1,1],[1,2]],
+  U:[[0,0],[2,0],[0,1],[1,1],[2,1]], V:[[0,0],[0,1],[0,2],[1,2],[2,2]],
+  W:[[0,0],[0,1],[1,1],[1,2],[2,2]], X:[[1,0],[0,1],[1,1],[2,1],[1,2]],
+  Y:[[1,0],[0,1],[1,1],[1,2],[1,3]], Z:[[0,0],[1,0],[1,1],[1,2],[2,2]],
+};
+const PENTA_COLORS = {F:'#ff1f3d',I:'#00c8ff',L:'#ff9500',N:'#8a2bff',P:'#ff1f9e',T:'#00e05a',
+  U:'#ffd600',V:'#1f5bff',W:'#ff5400',X:'#b6ff00',Y:'#00e8c6',Z:'#d400ff'};
+const TETRA = {I:[[0,0],[1,0],[2,0],[3,0]], O:[[0,0],[1,0],[0,1],[1,1]], T:[[0,0],[1,0],[2,0],[1,1]],
+  Z:[[0,0],[1,0],[1,1],[2,1]], L:[[2,0],[0,1],[1,1],[2,1]]}; // en 3D S=Z y J=L (espejos alcanzables rotando)
+const TETRA_COLORS = {I:'#00e5ff',O:'#ffd600',T:'#a020ff',Z:'#ff1f3d',L:'#ff8a00'};
+const SETS = {penta:{shapes:PENTA, colors:PENTA_COLORS}, tetra:{shapes:TETRA, colors:TETRA_COLORS}};
+let pieceSet = 'penta', SHAPES = PENTA, COLORS = PENTA_COLORS, KEYS = Object.keys(PENTA);
+function setPieceSet(s){
+  pieceSet = SETS[s] ? s : 'penta';
+  SHAPES = SETS[pieceSet].shapes; COLORS = SETS[pieceSet].colors; KEYS = Object.keys(SHAPES); bag = [];
+}
+const layerHue = y => ((190 - y * (250 / (H - 1))) % 360 + 360) % 360;
+const layerCss = y => `hsl(${layerHue(y)},100%,50%)`;
+
+/* ---------- Estado ---------- */
+let N = 5, grid = [], piece = null, nextKey = null, bag = [];
+let score = 0, level = 1, layersDone = 0, best = 0;
+let state = 'menu', acc = 0, soft = false, view = 'top', gameId = 0;
+
+const store = {
+  get(k, d){ try { const v = localStorage.getItem(k); return v === null ? d : JSON.parse(v); } catch { return d; } },
+  set(k, v){ try { localStorage.setItem(k, JSON.stringify(v)); } catch {} }
+};
+const bestKey = n => 'pentix.best.' + pieceSet + '.' + n;
+
+/* ---------- Three.js ---------- */
+const canvas = $('#gl'), stage = $('#stage');
+const renderer = new THREE.WebGLRenderer({canvas, antialias:true, alpha:true});
+renderer.setPixelRatio(Math.min(devicePixelRatio || 1, 2));
+renderer.setClearColor(0x000000, 0);
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(50, 1, 0.1, 300);
+scene.add(new THREE.HemisphereLight(0xffffff, 0x1c2238, 0.7));
+const sun = new THREE.DirectionalLight(0xffffff, 0.9);
+sun.castShadow = true; sun.shadow.mapSize.set(1024, 1024); sun.shadow.bias = -0.0008;
+scene.add(sun, sun.target);
+const fill = new THREE.DirectionalLight(0x8fb0ff, 0.25); scene.add(fill);
+
+const boxGeo = new THREE.BoxGeometry(0.92, 0.92, 0.92);
+const edgeGeo = new THREE.EdgesGeometry(boxGeo);
+const ghostGeo = new THREE.EdgesGeometry(new THREE.BoxGeometry(0.98, 0.98, 0.98));
+const layerMats = Array.from({length:H}, (_, y) => {
+  const c = new THREE.Color().setHSL(layerHue(y)/360, 1, 0.5);
+  return new THREE.MeshStandardMaterial({color:c, emissive:c, emissiveIntensity:0.22, roughness:0.32, metalness:0.05});
+});
+const flashMat = new THREE.MeshStandardMaterial({color:0xffffff, emissive:0xffffff, emissiveIntensity:0.9});
+const edgeMat = new THREE.LineBasicMaterial({color:0x000000, transparent:true, opacity:0.4});
+const pieceMat = new THREE.MeshStandardMaterial({roughness:0.28, metalness:0.05, emissiveIntensity:0.35});
+const pieceEdgeMat = new THREE.LineBasicMaterial({color:0xffffff});
+const ghostMat = new THREE.LineBasicMaterial({transparent:true, opacity:0.22});
+
+const pitGroup = new THREE.Group(), settled = new THREE.Group();
+const pieceGroup = new THREE.Group(), ghostGroup = new THREE.Group();
+scene.add(pitGroup, settled, pieceGroup, ghostGroup);
+const pieceMeshes = [], pieceEdges = [], ghostBoxes = [];
+for (let i = 0; i < 5; i++) {
+  const m = new THREE.Mesh(boxGeo, pieceMat); m.visible = false; pieceGroup.add(m); pieceMeshes.push(m); // pieza en caída: solo wireframe
+  const e = new THREE.LineSegments(edgeGeo, pieceEdgeMat); pieceGroup.add(e); pieceEdges.push(e);
+  const g = new THREE.LineSegments(ghostGeo, ghostMat); ghostGroup.add(g); ghostBoxes.push(g);
+}
+const pieceTarget = new THREE.Vector3();
+
+function buildPit(){
+  pitGroup.children.forEach(o => { o.geometry.dispose(); o.material.dispose(); });
+  pitGroup.clear();
+  const floor = new THREE.Mesh(new THREE.PlaneGeometry(N, N),
+    new THREE.MeshStandardMaterial({color:0x111a30, roughness:0.9}));
+  floor.rotation.x = -Math.PI/2; floor.position.set(N/2, 0, N/2); floor.receiveShadow = true;
+  pitGroup.add(floor);
+  const p = [], L = (a,b,c,d,e,f) => p.push(a,b,c,d,e,f);
+  for (let i = 0; i <= N; i++) { L(i,.002,0, i,.002,N); L(0,.002,i, N,.002,i); }
+  for (let i = 0; i <= N; i++) { L(0,0,i, 0,H,i); L(N,0,i, N,H,i); L(i,0,0, i,H,0); L(i,0,N, i,H,N); }
+  for (let y = 1; y <= H; y++) { L(0,y,0, 0,y,N); L(N,y,0, N,y,N); L(0,y,0, N,y,0); L(0,y,N, N,y,N); }
+  const geo = new THREE.BufferGeometry(); geo.setAttribute('position', new THREE.Float32BufferAttribute(p, 3));
+  pitGroup.add(new THREE.LineSegments(geo, new THREE.LineBasicMaterial({color:0x34467a, transparent:true, opacity:0.6})));
+  const rim = new THREE.BufferGeometry();
+  rim.setAttribute('position', new THREE.Float32BufferAttribute([0,H,0, N,H,0, N,H,0, N,H,N, N,H,N, 0,H,N, 0,H,N, 0,H,0], 3));
+  pitGroup.add(new THREE.LineSegments(rim, new THREE.LineBasicMaterial({color:0xffb547, transparent:true, opacity:0.7})));
+  const R = Math.max(N, H);
+  sun.position.set(N/2 + N*0.9, H + 14, N/2 + N*0.5); sun.target.position.set(N/2, 0, N/2);
+  Object.assign(sun.shadow.camera, {left:-R, right:R, top:R, bottom:-R, near:1, far:H + 40});
+  sun.shadow.camera.updateProjectionMatrix();
+  fill.position.set(N/2 - 10, H, N/2 - 6);
+}
+
+function rebuildSettled(flash = []){
+  settled.clear();
+  for (let y = 0; y < H; y++) for (let z = 0; z < N; z++) for (let x = 0; x < N; x++) {
+    if (!grid[y][z*N + x]) continue;
+    const m = new THREE.Mesh(boxGeo, flash.includes(y) ? flashMat : layerMats[y]);
+    m.position.set(x + .5, y + .5, z + .5); m.castShadow = m.receiveShadow = true;
+    const e = new THREE.LineSegments(edgeGeo, edgeMat); e.position.copy(m.position);
+    settled.add(m, e);
+  }
+}
+
+/* ---------- Cámara ---------- */
+const cam = {yaw:0.5, tYaw:0.5, pitch:0.62, r:20, ty:H/2, isoPitch:0.62};
+function camGoal(){
+  const tv = Math.tan(THREE.MathUtils.degToRad(camera.fov/2)), t = Math.min(tv, tv*camera.aspect);
+  if (view === 'top') return {pitch:Math.PI/2 - 0.001, r:H + (N/2 + 0.8)/t, ty:0};
+  const R = Math.sqrt(2*N*N + H*H)/2;
+  return {pitch:cam.isoPitch, r:R/Math.sin(Math.atan(t))*1.02, ty:H/2};
+}
+function updateCamera(dt, snap){
+  const g = camGoal(), k = snap ? 1 : 1 - Math.exp(-dt*7);
+  cam.yaw += (cam.tYaw - cam.yaw)*k; cam.pitch += (g.pitch - cam.pitch)*k;
+  cam.r += (g.r - cam.r)*k; cam.ty += (g.ty - cam.ty)*k;
+  const cp = Math.cos(cam.pitch);
+  camera.position.set(N/2 + cam.r*Math.sin(cam.yaw)*cp, cam.ty + cam.r*Math.sin(cam.pitch), N/2 + cam.r*Math.cos(cam.yaw)*cp);
+  camera.lookAt(N/2, cam.ty, N/2);
+}
+const snapYaw = y => Math.round(y/(Math.PI/2))*(Math.PI/2);
+// Ejes de pantalla cuantizados a ejes del mundo (los controles siguen a la cámara)
+function axes(){
+  const q = (vx, vz) => Math.abs(vx) >= Math.abs(vz)
+    ? {a:'x', s:Math.sign(vx)||1, dx:Math.sign(vx)||1, dz:0}
+    : {a:'z', s:Math.sign(vz)||1, dx:0, dz:Math.sign(vz)||1};
+  const y = cam.tYaw;
+  return {right:q(Math.cos(y), -Math.sin(y)), fwd:q(-Math.sin(y), -Math.cos(y))};
+}
+
+/* ---------- Lógica ---------- */
+const emptyLayer = () => new Array(N*N).fill(0);
+function shuffle(a){ for (let i = a.length - 1; i > 0; i--) { const j = Math.random()*(i+1)|0; [a[i], a[j]] = [a[j], a[i]]; } return a; }
+const fromBag = () => { if (!bag.length) bag = shuffle(KEYS.slice()); return bag.pop(); };
+
+function free(x, y, z){
+  if (x < 0 || x >= N || z < 0 || z >= N || y < 0) return false;
+  return y >= H || !grid[y][z*N + x];
+}
+const fits = (cells, x, y, z) => cells.every(c => free(x + c[0], y + c[1], z + c[2]));
+
+function makePiece(key){
+  const base = SHAPES[key];
+  const cx = base.reduce((s,c)=>s+c[0],0)/base.length, cz = base.reduce((s,c)=>s+c[1],0)/base.length;
+  let piv = base[0], bd = Infinity;
+  for (const c of base) { const d = (c[0]-cx)**2 + (c[1]-cz)**2; if (d < bd) { bd = d; piv = c; } }
+  const p = {key, cells:base.map(c => [c[0]-piv[0], 0, c[1]-piv[1]]), x:(N-1)>>1, y:H-1, z:(N-1)>>1};
+  const xs = p.cells.map(c => c[0] + p.x), zs = p.cells.map(c => c[2] + p.z);
+  if (Math.min(...xs) < 0) p.x -= Math.min(...xs); if (Math.max(...xs) >= N) p.x -= Math.max(...xs) - N + 1;
+  if (Math.min(...zs) < 0) p.z -= Math.min(...zs); if (Math.max(...zs) >= N) p.z -= Math.max(...zs) - N + 1;
+  return p;
+}
+
+function rot([x,y,z], a, d){
+  if (a === 'x') return d > 0 ? [x,-z,y] : [x,z,-y];
+  if (a === 'y') return d > 0 ? [z,y,-x] : [-z,y,x];
+  return d > 0 ? [-y,x,z] : [y,-x,z];
+}
+const KICKS = [[0,0,0],[1,0,0],[-1,0,0],[0,0,1],[0,0,-1],[1,0,1],[-1,0,-1],[1,0,-1],[-1,0,1],
+  [2,0,0],[-2,0,0],[0,0,2],[0,0,-2],[0,1,0],[0,-1,0],[0,2,0]];
+function tryRotate(a, d){
+  if (state !== 'play' || !piece) return;
+  const rc = piece.cells.map(c => rot(c, a, d));
+  for (const [kx,ky,kz] of KICKS) {
+    if (fits(rc, piece.x+kx, piece.y+ky, piece.z+kz)) {
+      piece.cells = rc; piece.x += kx; piece.y += ky; piece.z += kz;
+      sfx('rot'); syncPiece(); return;
+    }
+  }
+  sfx('bump');
+}
+function move(dx, dz){
+  if (state !== 'play' || !piece) return;
+  if (fits(piece.cells, piece.x+dx, piece.y, piece.z+dz)) { piece.x += dx; piece.z += dz; sfx('move'); syncPiece(); }
+  else sfx('bump');
+}
+function act(name){
+  const {right, fwd} = axes();
+  switch (name) {
+    case 'left': return move(-right.dx, -right.dz);
+    case 'right': return move(right.dx, right.dz);
+    case 'up': return move(fwd.dx, fwd.dz);
+    case 'down': return move(-fwd.dx, -fwd.dz);
+    case 'pitch': return tryRotate(right.a, right.s);
+    case 'pitch-': return tryRotate(right.a, -right.s);
+    case 'roll': return tryRotate(fwd.a, fwd.s);
+    case 'roll-': return tryRotate(fwd.a, -fwd.s);
+    case 'spin': return tryRotate('y', 1);
+    case 'spin-': return tryRotate('y', -1);
+    case 'drop': return hardDrop();
+  }
+}
+const ghostY = () => { let y = piece.y; while (fits(piece.cells, piece.x, y-1, piece.z)) y--; return y; };
+
+// Soltar: la pieza cae animada (con aceleración) hasta el fondo y recién ahí se fija
+let dropAnim = null;
+function hardDrop(){
+  if (state !== 'play' || !piece) return;
+  const gy = ghostY(), dist = piece.y - gy;
+  score += 2*dist;
+  if (!dist) { sfx('drop'); return lock(); }
+  state = 'drop'; dropAnim = {gy, v:12};
+  ghostGroup.visible = false; sfx('whoosh');
+}
+function stepDrop(dt){
+  const p = pieceGroup.position, k = 1 - Math.exp(-dt*28);
+  dropAnim.v += 140*dt;
+  p.x += (pieceTarget.x - p.x)*k; p.z += (pieceTarget.z - p.z)*k;
+  p.y -= dropAnim.v*dt;
+  if (p.y <= dropAnim.gy + .5) {
+    p.y = dropAnim.gy + .5; piece.y = dropAnim.gy; pieceTarget.y = p.y;
+    dropAnim = null; state = 'play'; sfx('drop'); lock();
+  }
+}
+const interval = () => Math.max(70, 1000*Math.pow(0.8, level - 1));
+
+function spawn(){
+  piece = makePiece(nextKey); nextKey = fromBag(); drawNext(); acc = 0;
+  if (!fits(piece.cells, piece.x, piece.y, piece.z)) { syncPiece(true); return gameOver(); }
+  syncPiece(true);
+}
+
+function lock(){
+  let overflow = false;
+  for (const c of piece.cells) {
+    const x = piece.x+c[0], y = piece.y+c[1], z = piece.z+c[2];
+    if (y >= H) overflow = true; else grid[y][z*N + x] = 1;
+  }
+  piece = null; pieceGroup.visible = ghostGroup.visible = false;
+  score += 5*level;
+  if (overflow) { rebuildSettled(); updateDepth(); return gameOver(); }
+  const full = [];
+  for (let y = 0; y < H; y++) if (grid[y].every(v => v)) full.push(y);
+  rebuildSettled(full); updateDepth(); updateHud();
+  if (!full.length) { sfx('lock'); return spawn(); }
+  state = 'clear'; sfx('clear');
+  const id = gameId;
+  setTimeout(() => {
+    if (id !== gameId) return;
+    grid = grid.filter((_, y) => !full.includes(y));
+    while (grid.length < H) grid.push(emptyLayer());
+    score += [0,100,300,700,1500,2500][full.length]*level;
+    layersDone += full.length;
+    let up = false;
+    while (layersDone >= LPL) { layersDone -= LPL; level++; up = true; }
+    if (up) { toast('Nivel ' + level); sfx('level'); }
+    else if (full.length > 1) toast(full.length + ' capas');
+    rebuildSettled(); updateDepth(); updateHud();
+    state = 'play'; spawn();
+  }, 320);
+}
+
+function syncPiece(snap){
+  if (!piece) return;
+  pieceGroup.visible = ghostGroup.visible = true;
+  for (let i = 0; i < 5; i++) pieceEdges[i].visible = ghostBoxes[i].visible = i < piece.cells.length;
+  piece.cells.forEach((c, i) => {
+    pieceMeshes[i].position.set(c[0], c[1], c[2]); pieceEdges[i].position.set(c[0], c[1], c[2]);
+    ghostBoxes[i].position.set(c[0], c[1], c[2]);
+  });
+  pieceTarget.set(piece.x + .5, piece.y + .5, piece.z + .5);
+  if (snap) pieceGroup.position.copy(pieceTarget);
+  const gy = ghostY();
+  ghostGroup.position.set(piece.x + .5, gy + .5, piece.z + .5);
+  ghostGroup.visible = gy !== piece.y;
+  if (snap) { const col = new THREE.Color(COLORS[piece.key]); pieceMat.color.copy(col); pieceMat.emissive.copy(col); ghostMat.color.copy(col); pieceEdgeMat.color.copy(col); }
+}
+
+/* ---------- Partida ---------- */
+function startGame(){
+  N = +document.querySelector('input[name=size]:checked').value;
+  store.set('pentix.size', N);
+  setPieceSet(document.querySelector('input[name=set]:checked').value); store.set('pentix.set', pieceSet);
+  gameId++; dropAnim = null; grid = Array.from({length:H}, emptyLayer); bag = [];
+  score = 0; level = 1; layersDone = 0; best = store.get(bestKey(N), 0);
+  buildPit(); rebuildSettled(); updateDepthCells(); updateDepth();
+  view = 'top'; cam.tYaw = snapYaw(cam.tYaw);
+  updateCamera(0, true);
+  hide('#menu'); hide('#overOv'); hide('#pauseOv');
+  nextKey = fromBag(); state = 'play'; spawn(); updateHud();
+  audioInit(); musicStart();
+}
+function gameOver(){
+  state = 'over'; musicStop(); sfx('over');
+  const rec = score > store.get(bestKey(N), 0);
+  if (rec) store.set(bestKey(N), score);
+  best = Math.max(best, score);
+  $('#oScore').textContent = score.toLocaleString('es-AR'); $('#oLevel').textContent = level;
+  $('#newRec').hidden = !rec || score === 0;
+  updateHud(); refreshMenuBests(); show('#overOv');
+}
+function setPause(on){
+  if (on && state === 'play') { state = 'pause'; show('#pauseOv'); musicStop(); }
+  else if (!on && state === 'pause') { state = 'play'; hide('#pauseOv'); musicStart(); }
+}
+function toMenu(){
+  gameId++; state = 'menu'; piece = null; pieceGroup.visible = ghostGroup.visible = false;
+  musicStop(); hide('#pauseOv'); hide('#overOv'); refreshMenuBests(); show('#menu');
+  view = 'iso'; demoScene();
+}
+function toggleView(){
+  view = view === 'top' ? 'iso' : 'top';
+  if (view === 'top') cam.tYaw = snapYaw(cam.tYaw);
+  toast(view === 'top' ? 'Vista cenital' : 'Vista 3/4', 700);
+}
+
+/* ---------- HUD ---------- */
+const show = s => { $(s).hidden = false; }, hide = s => { $(s).hidden = true; };
+function updateHud(){
+  $('#score').textContent = score.toLocaleString('es-AR');
+  $('#level').textContent = level;
+  $('#layers').textContent = layersDone + '/' + LPL;
+  $('#layerBar').style.width = (layersDone/LPL*100) + '%';
+  $('#best').textContent = Math.max(best, score).toLocaleString('es-AR');
+}
+function refreshMenuBests(){ [5,6,7].forEach(n => $('#best'+n).textContent = 'Récord ' + store.get(bestKey(n), 0).toLocaleString('es-AR')); }
+let depthCells = [];
+function updateDepthCells(){
+  const el = $('#depth'); el.innerHTML = '';
+  depthCells = Array.from({length:H}, () => el.appendChild(document.createElement('i')));
+}
+function updateDepth(){ depthCells.forEach((c, y) => c.style.background = grid[y] && grid[y].some(v => v) ? layerCss(y) : ''); }
+let toastT;
+function toast(msg, ms = 1200){ const t = $('#toast'); t.textContent = msg; t.classList.add('show'); clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove('show'), ms); }
+
+const nctx = $('#nextCv').getContext('2d');
+function drawNext(){
+  const W = 220, cells = SHAPES[nextKey];
+  nctx.clearRect(0, 0, W, W);
+  const xs = cells.map(c=>c[0]), zs = cells.map(c=>c[1]);
+  const w = Math.max(...xs)+1, h = Math.max(...zs)+1, s = Math.min(38, (W-24)/Math.max(w,h));
+  const ox = (W - w*s)/2, oy = (W - h*s)/2;
+  for (const [x,z] of cells) {
+    const px = ox + x*s + 2, py = oy + z*s + 2, q = s - 4;
+    nctx.fillStyle = COLORS[nextKey]; nctx.fillRect(px, py, q, q);
+    nctx.fillStyle = 'rgba(255,255,255,.28)'; nctx.fillRect(px, py, q, q*0.18);
+    nctx.fillStyle = 'rgba(0,0,0,.22)'; nctx.fillRect(px, py + q*0.82, q, q*0.18);
+  }
+}
+
+/* ---------- Audio (Web Audio, sin archivos) ---------- */
+const A = {ctx:null, master:null, music:null, sfx:null, muted:store.get('pentix.muted', false), timer:null, step:0, next:0};
+function audioInit(){
+  if (A.ctx) { A.ctx.resume(); return; }
+  const C = window.AudioContext || window.webkitAudioContext; if (!C) return;
+  A.ctx = new C(); A.master = A.ctx.createGain(); A.master.connect(A.ctx.destination);
+  A.music = A.ctx.createGain(); A.music.gain.value = 0.55; A.music.connect(A.master);
+  A.sfx = A.ctx.createGain(); A.sfx.gain.value = 0.9; A.sfx.connect(A.master);
+  applyMute();
+}
+function applyMute(){
+  if (A.master) A.master.gain.value = A.muted ? 0 : 1;
+  document.querySelectorAll('[data-ui=mute]').forEach(b => b.textContent = A.muted ? 'Sin sonido' : 'Sonido');
+}
+function toneAt(t, f, dur, {type='sine', vol=.2, slide=null, dest=null} = {}){
+  const o = A.ctx.createOscillator(), g = A.ctx.createGain();
+  o.type = type; o.frequency.setValueAtTime(f, t);
+  if (slide) o.frequency.exponentialRampToValueAtTime(slide, t + dur);
+  g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(vol, t + 0.01);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+  o.connect(g); g.connect(dest || A.sfx); o.start(t); o.stop(t + dur + 0.03);
+}
+const tone = (f, dur, o = {}, when = 0) => A.ctx && toneAt(A.ctx.currentTime + when, f, dur, o);
+function sfx(k){
+  if (!A.ctx) return;
+  if (k === 'move') tone(520, .04, {type:'square', vol:.035});
+  else if (k === 'bump') tone(140, .05, {type:'square', vol:.03});
+  else if (k === 'rot') tone(620, .08, {type:'triangle', vol:.1, slide:930});
+  else if (k === 'lock') tone(170, .14, {vol:.28, slide:70});
+  else if (k === 'whoosh') tone(900, .28, {type:'sawtooth', vol:.025, slide:180});
+  else if (k === 'drop') { tone(260, .16, {type:'sawtooth', vol:.06, slide:60}); tone(120, .2, {vol:.3, slide:50}); }
+  else if (k === 'clear') [784,988,1175,1568].forEach((f,i) => tone(f, .14, {type:'triangle', vol:.12}, i*.06));
+  else if (k === 'level') [523,659,784,1047,1319].forEach((f,i) => tone(f, .18, {type:'square', vol:.05}, i*.08));
+  else if (k === 'over') [440,392,330,262,196].forEach((f,i) => tone(f, .26, {type:'sawtooth', vol:.07}, i*.15));
+}
+const mf = m => 440*Math.pow(2, (m - 69)/12);
+const CH = [[57,60,64],[53,57,60],[48,52,55],[55,59,62]], BASS = [45,41,48,43], ARP = [0,1,2,1,0,2,1,2];
+function sched(){
+  const sd = 60/(100 + level*5)/4;
+  while (A.next < A.ctx.currentTime + 0.12) {
+    const s = A.step % 64, bar = s >> 4, i = s % 16, ch = CH[bar];
+    toneAt(A.next, mf(ch[ARP[i % 8]] + 12), sd*1.7, {type:'triangle', vol:.04, dest:A.music});
+    if (i % 8 === 0) toneAt(A.next, mf(BASS[bar]), sd*7, {vol:.13, dest:A.music});
+    if (i % 4 === 2) toneAt(A.next, 3200, .03, {type:'square', vol:.008, dest:A.music});
+    A.next += sd; A.step++;
+  }
+}
+function musicStart(){ if (!A.ctx || A.timer) return; A.next = A.ctx.currentTime + 0.06; A.timer = setInterval(sched, 25); }
+function musicStop(){ clearInterval(A.timer); A.timer = null; }
+
+/* ---------- Entrada ---------- */
+const KEYMAP = {ArrowLeft:'left', ArrowRight:'right', ArrowUp:'up', ArrowDown:'down',
+  q:'pitch', a:'pitch-', w:'spin', s:'spin-', e:'roll', d:'roll-', ' ':'drop'};
+addEventListener('keydown', e => {
+  const k = e.key.length === 1 ? e.key.toLowerCase() : e.key;
+  if (k === 'Enter') { if (state === 'menu' || state === 'over') { e.preventDefault(); startGame(); } else if (state === 'pause') setPause(false); return; }
+  if (k === 'p' || k === 'Escape') { setPause(state === 'play'); return; }
+  if (k === 'm') { A.muted = !A.muted; store.set('pentix.muted', A.muted); applyMute(); return; }
+  if (k === 'v') { e.preventDefault(); toggleView(); return; }
+  if (k === 'z') { cam.tYaw -= Math.PI/2; return; }
+  if (k === 'x') { cam.tYaw += Math.PI/2; return; }
+  if (k === 'Shift') { soft = true; return; }
+  if (KEYMAP[k]) { e.preventDefault(); if (k === ' ' && e.repeat) return; act(KEYMAP[k]); }
+});
+addEventListener('keyup', e => { if (e.key === 'Shift') soft = false; });
+addEventListener('blur', () => { soft = false; });
+document.addEventListener('visibilitychange', () => { if (document.hidden) setPause(true); });
+
+// Orbitar arrastrando sobre el pozo
+let drag = null;
+canvas.addEventListener('pointerdown', e => { drag = {x:e.clientX, y:e.clientY}; canvas.setPointerCapture(e.pointerId); });
+canvas.addEventListener('pointermove', e => {
+  if (!drag) return;
+  const dx = e.clientX - drag.x, dy = e.clientY - drag.y; drag = {x:e.clientX, y:e.clientY};
+  cam.tYaw -= dx*0.008; cam.yaw = cam.tYaw;
+  if (view === 'iso') cam.isoPitch = Math.min(1.35, Math.max(0.15, cam.isoPitch + dy*0.006));
+});
+const endDrag = () => { if (drag && view === 'top') cam.tYaw = snapYaw(cam.tYaw); drag = null; };
+canvas.addEventListener('pointerup', endDrag); canvas.addEventListener('pointercancel', endDrag);
+
+// Pad táctil con repetición al mantener presionado
+document.querySelectorAll('.pbtn').forEach(b => {
+  let t1, t2;
+  const stop = () => { clearTimeout(t1); clearInterval(t2); };
+  b.addEventListener('pointerdown', e => {
+    e.preventDefault(); audioInit(); act(b.dataset.act);
+    if (['left','right','up','down'].includes(b.dataset.act)) t1 = setTimeout(() => t2 = setInterval(() => act(b.dataset.act), 90), 260);
+  });
+  ['pointerup','pointerleave','pointercancel'].forEach(ev => b.addEventListener(ev, stop));
+});
+document.querySelectorAll('[data-ui]').forEach(b => b.addEventListener('click', () => {
+  const u = b.dataset.ui; b.blur();
+  if (u === 'view') toggleView();
+  else if (u === 'pause') setPause(state === 'play');
+  else if (u === 'mute') { audioInit(); A.muted = !A.muted; store.set('pentix.muted', A.muted); applyMute(); }
+}));
+document.querySelectorAll('input[name=set]').forEach(r => r.addEventListener('change', () => {
+  setPieceSet(r.value); refreshMenuBests(); nextKey = fromBag(); drawNext();
+}));
+$('#startBtn').addEventListener('click', e => { e.currentTarget.blur(); startGame(); });
+$('#againBtn').addEventListener('click', e => { e.currentTarget.blur(); startGame(); });
+$('#menuBtn').addEventListener('click', e => { e.currentTarget.blur(); toMenu(); });
+$('#resumeBtn').addEventListener('click', e => { e.currentTarget.blur(); setPause(false); });
+$('#quitBtn').addEventListener('click', e => { e.currentTarget.blur(); toMenu(); });
+
+/* ---------- Escena de menú ---------- */
+function demoScene(){
+  N = store.get('pentix.size', 5);
+  const r = $('#s' + N); if (r) r.checked = true;
+  setPieceSet(store.get('pentix.set', 'penta'));
+  $(pieceSet === 'tetra' ? '#setTetra' : '#setPenta').checked = true;
+  grid = Array.from({length:H}, (_, y) => Array.from({length:N*N}, () => y < 3 && Math.random() < (0.85 - y*0.2) ? 1 : 0));
+  buildPit(); rebuildSettled(); updateDepthCells(); updateDepth();
+  nextKey = fromBag(); drawNext(); score = 0; level = 1; layersDone = 0; best = store.get(bestKey(N), 0); updateHud();
+  refreshMenuBests();
+}
+
+/* ---------- Bucle ---------- */
+function resize(){
+  const w = stage.clientWidth, h = stage.clientHeight; if (!w || !h) return;
+  renderer.setSize(w, h, false); camera.aspect = w/h; camera.updateProjectionMatrix();
+}
+new ResizeObserver(resize).observe(stage);
+
+let last = performance.now();
+function frame(now){
+  const dt = Math.min(0.05, (now - last)/1000); last = now;
+  if (state === 'play' && piece) {
+    acc += dt*1000;
+    const iv = soft ? Math.max(30, interval()/12) : interval();
+    while (acc >= iv && state === 'play' && piece) {
+      acc -= iv;
+      if (fits(piece.cells, piece.x, piece.y - 1, piece.z)) { piece.y--; syncPiece(); if (soft) score += 1; }
+      else lock();
+    }
+    if (soft) updateHud();
+  }
+  if (state === 'menu' && !reduceMotion && !drag) cam.tYaw += dt*0.18;
+  if (state === 'drop' && dropAnim && piece) stepDrop(dt);
+  else pieceGroup.position.lerp(pieceTarget, 1 - Math.exp(-dt*28));
+  updateCamera(dt);
+  renderer.render(scene, camera);
+  requestAnimationFrame(frame);
+}
+
+// En el menú se muestra la vista 3/4 orbitando; la partida arranca en vista cenital
+view = 'iso'; refreshMenuBests(); applyMute(); demoScene(); resize(); updateCamera(0, true);
+requestAnimationFrame(frame);
+})();
+</script>
+
+</html>
